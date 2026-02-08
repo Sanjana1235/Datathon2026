@@ -1,0 +1,134 @@
+---
+title: "Access to a Livable Planet"
+subtitle: "Dubstech Datathon 2026"
+author: "Smilangi Dasari, Sanjana Surisetty"
+date: today
+format: 
+  theme: simple
+  embed-resources: true
+---
+
+```{r}
+library(tidyverse)
+library(plotly)
+library(DT)
+library(maps)
+
+pollution <- read.csv("Access_to_a_Livable_Planet_Dataset.csv")
+```
+
+## Unhealthy Days by State- Q1
+```{r}
+# background stuff
+pollution_by_state <- pollution |>
+  group_by(State) |>
+  summarize(
+    Total_Days = sum(Days.with.AQI),
+    Total_Unhealthy = sum(Unhealthy.for.Sensitive.Groups.Days + 
+                           Unhealthy.Days + 
+                           Very.Unhealthy.Days + 
+                           Hazardous.Days),
+    Percent_Unhealthy = (Total_Unhealthy / Total_Days) * 100)
+
+states_map <- map_data("state")
+pollution_by_state <- pollution_by_state |>
+  mutate(region = tolower(State))
+
+map_data_full <- left_join(states_map, pollution_by_state, by = "region")
+
+# make graph
+ggplot(map_data_full, aes(x = long, y = lat, group = group, fill = Percent_Unhealthy)) +
+  geom_polygon(color = "white", size = 0.3) +
+  scale_fill_viridis(option = "mako",
+                    name = "Percent of\nUnhealthy Days",
+                    direction = -1) +
+  labs(title = "Percentage of Days with Unhealthy Air Quality by State",
+    subtitle = "Based on EPA AQI Data 2025") +
+    coord_map("albers", lat0 = 30, lat1 = 40) +
+    theme (panel.background = element_rect(fill = "transparent", colour = NA), plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5),
+           axis.title.x = element_blank(), axis.text.x = element_blank(), axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks = element_blank())
+
+# summary stats
+pollution_by_state |>
+  arrange(desc(Percent_Unhealthy)) |>
+  select(State, Percent_Unhealthy, Total_Unhealthy, Total_Days) |>
+  head(10)
+```
+
+## Top 10 counties with the worst days- Q1 pt 2
+```{r}
+pollution_worst <- pollution |>
+  group_by(County, State) |>
+  summarize(
+    Total_Days = sum(Days.with.AQI),
+    Total_Unhealthy = sum(Unhealthy.for.Sensitive.Groups.Days + 
+                           Unhealthy.Days + 
+                           Very.Unhealthy.Days + 
+                           Hazardous.Days),
+    Percent_Unhealthy = (Total_Unhealthy / Total_Days) * 100,
+    .groups = "drop") |>
+  mutate(County_State = paste0(County, ", ", State)) |>
+  slice_max(order_by = Percent_Unhealthy, n = 10)
+
+ggplot(pollution_worst, aes(x = Percent_Unhealthy, y = reorder(County_State, Percent_Unhealthy))) +
+  geom_col(fill = "darkseagreen2") + 
+  labs(title = "Top 10 Counties with the Highest Percentage of Unhealthy Air Days",
+       subtitle = "Based on EPA AQI Data 2025",
+       x = "Percentage of Unhealthy Days", 
+       y = NULL) +   
+  theme_minimal() +
+  theme (plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+## Type of bad days in worst counties- q2
+```{r}
+# prep by category of pollution level
+pollution_long <- pollution |>
+  mutate(County_State = paste0(County, ", ", State)) |>
+  group_by(County_State) |>
+  summarize(
+    Total_Days = sum(Days.with.AQI),
+    Good = sum(Good.Days),
+    Moderate = sum(Moderate.Days),
+    Unhealthy_Sensitive = sum(Unhealthy.for.Sensitive.Groups.Days),
+    Unhealthy = sum(Unhealthy.Days),
+    Very_Unhealthy = sum(Very.Unhealthy.Days),
+    Hazardous = sum(Hazardous.Days),
+    Total_Unhealthy = sum(Unhealthy.for.Sensitive.Groups.Days + 
+                           Unhealthy.Days + 
+                           Very.Unhealthy.Days + 
+                           Hazardous.Days),
+    Percent_Unhealthy = (Total_Unhealthy / Total_Days) * 100,
+    .groups = "drop") |>
+  
+  slice_max(order_by = Percent_Unhealthy, n = 10) |>
+  
+  # make them longer to be stackable
+  pivot_longer(
+    cols = c(Good, Moderate, Unhealthy_Sensitive, Unhealthy, Very_Unhealthy, Hazardous),
+    names_to = "pollution_category",
+    values_to = "Days") |>
+  mutate(Percentage = (Days / Total_Days) * 100,
+    pollution_category = factor(pollution_category, levels = c("Good", "Moderate", "Unhealthy_Sensitive", "Unhealthy", "Very_Unhealthy", "Hazardous")))
+
+# plot :p
+ggplot(pollution_long, aes(x = Percentage, y = reorder(County_State, Percent_Unhealthy), fill = pollution_category)) +
+  geom_col(position = "stack") +
+  scale_fill_manual(
+    values = c(
+      "Good" = "#72c76B",
+      "Moderate" = "#F5E44C",
+      "Unhealthy_Sensitive" = "#F5A64C",
+      "Unhealthy" = "#F5604C",
+      "Very_Unhealthy" = "#934DB3",
+      "Hazardous" = "#6E2332"),
+    labels = c("Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"),
+    name = "Pollution\nCategory\nLevel") +
+  labs(title = "Air Quality Distribution in 10 Worst Counties",
+    subtitle = "Based on EPA AQI Data 2025",
+    x = "Percentage of Days (%)",
+    y = NULL) +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5), legend.position = "bottom")
+```
