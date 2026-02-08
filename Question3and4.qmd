@@ -1,0 +1,129 @@
+---
+title: "Access to a livable Planet - Questions 3 and 4"
+subtitle: "Dubstech Datathon 2026"
+author: "Smilangi Dasari, Sanjana Surisetty"
+date: today
+format: 
+  html:
+    toc: true
+    embed-resources: true
+---
+
+```{r}
+#install.packages("tidyverse")
+#install.packages("dplyr")
+#install.packages("plotly")
+#install.packages("janitor")
+#install.packages("maps")
+#install.packages("mapproj")
+#install.packages("viridis")
+library(maps)
+library(viridis)
+library(mapproj)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(janitor)
+library(plotly)
+
+
+```
+
+
+
+```{r}
+aqi <- read.csv("Access_to_a_Livable_Planet_Dataset.csv") |>
+  clean_names()
+aqi |>
+  glimpse()
+```
+
+
+```{r}
+pop <- read.csv("uscounties.csv") |>
+  clean_names()
+pop |>
+  glimpse()
+```
+
+```{r}
+aqi <- aqi |>
+mutate(county = str_replace(county, " county", ""))
+merged_df <- left_join(aqi,pop, by = c("state" = "state_name", "county" = "county"))
+```
+
+
+```{r}
+merged_df <- merged_df |>
+  mutate(
+    percent_unhealthy_days = ((unhealthy_days + very_unhealthy_days + hazardous_days) /days_with_aqi) * 100)
+merged_df |>
+  glimpse()
+```
+
+```{r}
+merged_df <- merged_df |>
+  mutate(pop_100k = population / 100000)
+
+ggplot(merged_df, aes(x = pop_100k, y = percent_unhealthy_days)) +
+  geom_point(alpha = 0.6, color = "darkseagreen2") +
+  labs(
+    x = "Population (hundreds of thousands)",
+    y = "% Unhealthy Days",
+    title = "Population vs. % Unhealthy Days by County",
+    subtitle = "Based on EPA AQI Data (2000-2025) and 2023 AQI Data with SimpleMaps County Demographics") +
+  theme_minimal()
+```
+
+
+```{r}
+state_pollutant <- merged_df |>
+  group_by(state) |>
+  summarise(
+    total_CO = sum(days_co, na.rm = TRUE),
+    total_NO2 = sum(days_no2, na.rm = TRUE),
+    total_Ozone = sum(days_ozone, na.rm = TRUE),
+    total_PM2.5 = sum(days_pm2_5, na.rm = TRUE),
+    total_PM10 = sum(days_pm10, na.rm = TRUE)
+  ) |>
+  rowwise() |>
+  mutate(
+    primary_pollutant = c("CO","NO2","Ozone","PM2.5","PM10")[which.max(c(total_CO,total_NO2,total_Ozone,total_PM2.5,total_PM10))],
+    region = tolower(state)
+  ) |>
+  ungroup()
+
+states_map <- map_data("state")
+
+state_pollutant <- state_pollutant |>
+  semi_join(states_map, by = "region")
+
+
+map_data_full <- left_join(states_map, state_pollutant, by = "region")
+
+ggplot(map_data_full, aes(x = long, y = lat, group = group, fill = primary_pollutant)) +
+  geom_polygon(color = "white", size = 0.3) +
+  scale_fill_manual(values = c(
+    "CO" = "red",
+    "NO2" = "blue",
+    "Ozone" = "darkseagreen2",
+    "PM2.5" = "darkseagreen4",
+    "PM10" = "purple"
+  )) +
+  labs(
+    title = "Primary Air Pollution by State",
+    subtitle = "Based on EPA AQI Data 2025", ) +
+  coord_map("albers", lat0 = 30, lat1 = 40) +
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.title = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  )
+
+```
+
+
